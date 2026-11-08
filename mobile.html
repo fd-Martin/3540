@@ -8,7 +8,7 @@
 @media(prefers-color-scheme:dark){:root{--bg:#111b1d;--surf:#18262a;--ink:#e6efed;--mute:#97aaa9;--line:#2a3b3f;--acc:#59c4af;--t1:#59c4af;--t2:#6bb4d1;--t3:#8fa4d6;--t4:#c2b58f;--t5:#9aa4a7;--focus:#fb923c}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{-webkit-text-size-adjust:100%;scroll-padding-top:120px}
-body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.5 system-ui,-apple-system,"Segoe UI","Noto Sans Bengali","Hind Siliguri","Kalpurush",sans-serif;padding:0 max(12px,env(safe-area-inset-right)) env(safe-area-inset-bottom) max(12px,env(safe-area-inset-left))}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.5 system-ui,-apple-system,"Segoe UI","Noto Sans Bengali","Hind Siliguri","Kalpurush",sans-serif;padding:0 max(12px,env(safe-area-inset-right)) calc(76px + env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}
 header{position:sticky;top:0;z-index:5;background:var(--bg);margin:0 -12px;padding:calc(8px + env(safe-area-inset-top)) 12px 6px;border-bottom:1px solid var(--line)}
 #q{width:100%;height:46px;font:inherit;font-size:16px;padding:0 14px;border:1px solid var(--line);border-radius:10px;background:var(--surf);color:var(--ink);-webkit-appearance:none}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px}
@@ -32,11 +32,16 @@ details[open] .chev{transform:rotate(90deg)}
 .s{margin:12px 0 0}
 .en{margin:0}.sbn{margin:3px 0 0;color:var(--mute);font-style:italic}
 .ex{margin:6px 0 0;padding-left:20px;font-size:.95rem}.ex li{margin:3px 0}
-.done{width:100%;min-height:46px;margin-top:14px;font:inherit;font-size:.95rem;border:1px solid var(--line);border-radius:10px;background:none;color:var(--ink)}
-details.learned{opacity:.5}
+.acts{display:flex;gap:8px;margin-top:14px}
+.act{flex:1;min-height:46px;font:inherit;font-size:.92rem;border:1px solid var(--line);border-radius:10px;background:none;color:var(--ink)}
+.act[data-a=l]{background:var(--acc);border-color:var(--acc);color:var(--bg);font-weight:600}
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;background:var(--surf);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+.tab{flex:1;min-height:58px;font:inherit;font-size:.88rem;border:0;background:none;color:var(--mute);display:flex;flex-direction:column;align-items:center;justify-content:center}
+.tab small{font-size:.75rem}
+.tab[aria-selected=true]{color:var(--acc);font-weight:700;box-shadow:inset 0 3px 0 var(--acc)}
 #end{height:60px;text-align:center;color:var(--mute);font-size:.85rem;padding-top:14px}
 .empty{padding:40px 0;color:var(--mute);text-align:center}
-#top{position:fixed;right:max(14px,env(safe-area-inset-right));bottom:calc(14px + env(safe-area-inset-bottom));width:48px;height:48px;border-radius:50%;border:1px solid var(--line);background:var(--surf);color:var(--ink);font-size:1.3rem;display:none;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+#top{position:fixed;right:max(14px,env(safe-area-inset-right));bottom:calc(72px + env(safe-area-inset-bottom));width:48px;height:48px;border-radius:50%;border:1px solid var(--line);background:var(--surf);color:var(--ink);font-size:1.3rem;display:none;box-shadow:0 2px 8px rgba(0,0,0,.18)}
 @media(prefers-reduced-motion:reduce){.chev{transition:none}}
 </style></head><body>
 <header>
@@ -44,6 +49,7 @@ details.learned{opacity:.5}
 <div class="chips" id="chips" role="group" aria-label="Filters"></div>
 <div id="count"></div>
 </header>
+<nav class="tabs" id="tabs" role="tablist" aria-label="Word lists"></nav>
 <main id="list"></main><div id="end"></div>
 <button id="top" aria-label="Back to top">↑</button>
 <script>
@@ -52,28 +58,39 @@ const TI={1:["Everyday","Used almost daily in speech, messages and work."],2:["C
 const COL={1:"var(--t1)",2:"var(--t2)",3:"var(--t3)",4:"var(--t4)",5:"var(--t5)"};
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-let learned=new Set();try{learned=new Set(JSON.parse(localStorage.getItem("learned")||"[]"))}catch(e){}
-const save=()=>{try{localStorage.setItem("learned",JSON.stringify([...learned]))}catch(e){}};
+let st={};try{st=JSON.parse(localStorage.getItem("status2")||"{}")}catch(e){}
+const save=()=>{try{localStorage.setItem("status2",JSON.stringify(st))}catch(e){}};
 D.forEach(e=>e.k=(e.w+" "+e.bn+" "+e.s.map(s=>s.en+" "+s.bn).join(" ")).toLowerCase());
-let tier=0,hide=false,PAGE=40,res=[],done=0,lastT=0,q="";
-const cnt={};D.forEach(e=>cnt[e.t]=(cnt[e.t]||0)+1);
-function chips(){$("chips").innerHTML=[[0,"All",D.length]].concat([1,2,3,4,5].map(t=>[t,TI[t][0],cnt[t]])).map(([t,n,c])=>`<button class="chip" data-t="${t}" aria-pressed="${t===tier}">${n}<small>${c}</small></button>`).join("")+`<button class="chip" id="hide" aria-pressed="${hide}">Hide learned</button>`}
+const TABS=[["learn","To learn"],["l","Learned"],["u","Unimportant"]];
+const EMPTY={learn:"Nothing here. Try another tier or search.",l:"No learned words yet. Open a word and tap “Learned”.",u:"Nothing here yet. Open a word and tap “Not important” to move it here."};
+let tab="learn",tier=0,PAGE=40,res=[],done=0,lastT=0,q="";
+const inTab=e=>tab==="learn"?!st[e.r]:st[e.r]===tab;
+function tabs(){const n={learn:0,l:0,u:0};D.forEach(e=>n[st[e.r]||"learn"]++);$("tabs").innerHTML=TABS.map(([k,l])=>`<button class="tab" role="tab" data-k="${k}" aria-selected="${k===tab}">${l}<small>${n[k]}</small></button>`).join("")}
+function chips(){const c={};let all=0;D.forEach(e=>{if(inTab(e)){c[e.t]=(c[e.t]||0)+1;all++}});const sl=$("chips").scrollLeft;
+$("chips").innerHTML=[[0,"All",all]].concat([1,2,3,4,5].map(t=>[t,TI[t][0],c[t]||0])).map(([t,n,k])=>`<button class="chip" data-t="${t}" aria-pressed="${t===tier}">${n}<small>${k}</small></button>`).join("");$("chips").scrollLeft=sl}
 function row(e){const ss=e.s.map(s=>`<div class="s"><p class="en">${esc(s.en)}</p>${s.bn?`<p class="sbn">${esc(s.bn)}</p>`:""}${s.ex.length?`<ul class="ex">${s.ex.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:""}</div>`).join("")||'<div class="s"><p class="sbn">No definition in the source file.</p></div>';
-return `<details style="--c:${COL[e.t]}"${learned.has(e.r)?' class="learned"':""}><summary><span class="w">${esc(e.w)}</span><span class="r">#${e.r}</span><span class="bn">${esc(e.bn)}</span><span class="chev" aria-hidden="true">›</span></summary><div class="body">${ss}<button class="done" data-r="${e.r}">${learned.has(e.r)?"Mark as not learned":"Mark as learned"}</button></div></details>`}
+const acts=tab==="learn"?'<button class="act" data-a="l">✓ Learned</button><button class="act" data-a="u">Not important</button>':'<button class="act" data-a="x">Move back to learn list</button>';
+return `<details style="--c:${COL[e.t]}" data-r="${e.r}"><summary><span class="w">${esc(e.w)}</span><span class="r">#${e.r}</span><span class="bn">${esc(e.bn)}</span><span class="chev" aria-hidden="true">›</span></summary><div class="body">${ss}<div class="acts">${acts}</div></div></details>`}
 function more(){if(done>=res.length)return;let h="";res.slice(done,done+PAGE).forEach(e=>{if(!q&&e.t!==lastT){lastT=e.t;h+=`<div class="tierhead" style="--c:${COL[e.t]}">${TI[e.t][0]}<p>${TI[e.t][1]}</p></div>`}h+=row(e)});done=Math.min(done+PAGE,res.length);$("list").insertAdjacentHTML("beforeend",h);$("end").textContent=done>=res.length&&res.length?"End of list":""}
 function render(){q=$("q").value.trim().toLowerCase();
-res=D.filter(e=>(!tier||e.t===tier)&&(!hide||!learned.has(e.r))&&(!q||e.k.includes(q)));
+res=D.filter(e=>inTab(e)&&(!tier||e.t===tier)&&(!q||e.k.includes(q)));
 if(q)res.sort((a,b)=>(b.w.toLowerCase().startsWith(q)-a.w.toLowerCase().startsWith(q))||a.r-b.r);
-$("count").textContent=res.length+" of "+D.length+" words";
-$("list").innerHTML=res.length?"":'<p class="empty">No words match. Try a shorter search or another tier.</p>';
+$("count").textContent=res.length+" words";
+$("list").innerHTML=res.length?"":`<p class="empty">${EMPTY[tab]}</p>`;
 done=0;lastT=0;$("end").textContent="";more()}
 $("q").addEventListener("input",render);
 $("q").addEventListener("keydown",e=>{if(e.key==="Enter")e.target.blur()});
-$("chips").addEventListener("click",e=>{const b=e.target.closest(".chip");if(!b)return;if(b.id==="hide")hide=!hide;else tier=+b.dataset.t;chips();render();scrollTo(0,0)});
-$("list").addEventListener("click",e=>{const b=e.target.closest(".done");if(!b)return;const r=+b.dataset.r;learned.has(r)?learned.delete(r):learned.add(r);save();
-const d=b.closest("details");d.classList.toggle("learned",learned.has(r));b.textContent=learned.has(r)?"Mark as not learned":"Mark as learned"});
+$("chips").addEventListener("click",e=>{const b=e.target.closest(".chip");if(!b)return;tier=+b.dataset.t;chips();render();scrollTo(0,0)});
+$("tabs").addEventListener("click",e=>{const b=e.target.closest(".tab");if(!b)return;tab=b.dataset.k;tier=0;tabs();chips();render();scrollTo(0,0)});
+$("list").addEventListener("click",e=>{const b=e.target.closest(".act");if(!b)return;const d=b.closest("details"),r=+d.dataset.r;
+if(b.dataset.a==="x")delete st[r];else st[r]=b.dataset.a;save();
+const p=d.previousElementSibling,n=d.nextElementSibling;d.remove();
+if(p&&p.classList.contains("tierhead")&&(!n||n.classList.contains("tierhead")))p.remove();
+const i=res.findIndex(x=>x.r===r);if(i>-1){res.splice(i,1);if(i<done)done--}
+$("count").textContent=res.length+" words";tabs();chips();
+if(!res.length){$("list").innerHTML=`<p class="empty">${EMPTY[tab]}</p>`;$("end").textContent=""}});
 new IntersectionObserver(a=>{if(a[0].isIntersecting)more()},{rootMargin:"600px"}).observe($("end"));
 const tb=$("top");addEventListener("scroll",()=>{tb.style.display=scrollY>800?"block":"none"},{passive:true});
 tb.addEventListener("click",()=>scrollTo({top:0,behavior:matchMedia("(prefers-reduced-motion:reduce)").matches?"auto":"smooth"}));
-chips();render();
+tabs();chips();render();
 </script></body></html>
