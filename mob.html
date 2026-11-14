@@ -114,7 +114,8 @@
       -webkit-appearance: none;
     }
 
-    #theme {
+    #theme,
+    #sync {
       flex: none;
       width: 46px;
       height: 46px;
@@ -278,7 +279,8 @@
       margin-top: 14px;
     }
 
-    .act {
+    .act,
+    .btn {
       flex: 1 1 calc(50% - 4px);
       min-height: 46px;
       font: inherit;
@@ -295,7 +297,8 @@
       border-color: var(--accent);
     }
 
-    .act[data-a="c"] {
+    .act[data-a="c"],
+    .btn.primary {
       font-weight: 600;
       color: var(--on-accent);
       background: var(--accent);
@@ -303,7 +306,8 @@
     }
 
     .act[data-a="u"],
-    .act[data-a="x"] {
+    .act[data-a="x"],
+    .act[data-a="img"] {
       flex-basis: 100%;
     }
 
@@ -341,6 +345,37 @@
       color: var(--accent);
       box-shadow: inset 0 3px 0 var(--accent);
     }
+
+    /* ---------- Sync dialog ---------- */
+    dialog {
+      width: min(92vw, 440px);
+      max-height: 90vh;
+      padding: 18px;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+    }
+
+    dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+
+    dialog h2 { margin: 0 0 6px; font: 600 1.15rem Georgia, serif; }
+    dialog h3 { margin: 16px 0 6px; font-size: 0.95rem; }
+    dialog p  { margin: 0; font-size: 0.88rem; color: var(--muted); }
+
+    dialog textarea {
+      width: 100%;
+      padding: 10px;
+      font: 14px/1.4 ui-monospace, Menlo, Consolas, monospace;
+      color: var(--ink);
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      resize: vertical;
+    }
+
+    dialog .acts { margin-top: 8px; }
+    #syncMsg { min-height: 1.4em; margin-top: 12px; color: var(--accent); }
 
     /* ---------- Misc ---------- */
     #end {
@@ -385,6 +420,7 @@
              autocapitalize="off" placeholder="Search · wildcards: re*  *ing  b?t"
              aria-label="Search">
       <button id="theme" type="button"></button>
+      <button id="sync" type="button" aria-label="Move progress between devices">⇅</button>
     </div>
     <div class="chips" id="chips" role="group" aria-label="Usage tier"></div>
     <div class="meta">
@@ -395,6 +431,36 @@
 
   <main id="list"></main>
   <div id="end"></div>
+
+  <dialog id="syncBox" aria-labelledby="syncTitle">
+    <h2 id="syncTitle">Move progress between devices</h2>
+    <p>Your marks are saved only in this browser. To use them on another device,
+       copy the code below there and paste it into "Onto this device".</p>
+
+    <h3>From this device</h3>
+    <textarea id="outCode" rows="3" readonly aria-label="Progress code"></textarea>
+    <div class="acts">
+      <button class="btn primary" id="copyCode" type="button">Copy code</button>
+      <button class="btn" id="saveFile" type="button">Save as file</button>
+    </div>
+
+    <h3>Onto this device</h3>
+    <textarea id="inCode" rows="3" placeholder="Paste a progress code here"
+              aria-label="Paste progress code"></textarea>
+    <div class="acts">
+      <button class="btn" id="openFile" type="button">Open file…</button>
+      <input id="fileInput" type="file" accept=".txt,text/plain" hidden>
+    </div>
+    <div class="acts">
+      <button class="btn primary" id="merge" type="button">Merge</button>
+      <button class="btn" id="replace" type="button">Replace</button>
+    </div>
+    <p>Merge adds the code's marks to this device (the code wins if both differ).
+       Replace makes this device match the code exactly.</p>
+
+    <p id="syncMsg" role="status"></p>
+    <div class="acts"><button class="btn" id="closeSync" type="button">Close</button></div>
+  </dialog>
 
   <nav class="tabs" id="tabs" role="tablist" aria-label="Word lists"></nav>
   <button id="top" type="button" aria-label="Back to top">↑</button>
@@ -4082,7 +4148,7 @@
 
       const actions = ACTIONS[tab]
         .map(([a, label]) => `<button class="act" data-a="${a}">${label}</button>`)
-        .join("");
+        .join("") + '<button class="act" data-a="img">↓ Save as image</button>';
 
       return `
         <details style="--c:${TIER_COLOR[e.t]}" data-r="${e.r}"${expanded ? " open" : ""}>
@@ -4191,6 +4257,13 @@
       const card = btn.closest("details");
       const rank = +card.dataset.r;
 
+      if (btn.dataset.a === "img") {
+        saveImage(rank);
+        btn.textContent = "Image saved ✓";
+        setTimeout(() => { btn.textContent = "↓ Save as image"; }, 1500);
+        return;
+      }
+
       if (btn.dataset.a === "x") delete status[rank];
       else status[rank] = btn.dataset.a;
       saveStatus();
@@ -4240,6 +4313,247 @@
       const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
       scrollTo({ top: 0, behavior: calm ? "auto" : "smooth" });
     });
+
+    /* ===== Save a word as an image =====
+       Draws the whole entry (word, Bangla gloss, every definition, translation
+       and example) onto a canvas using the current day/night colours, then
+       downloads it as a PNG.  No libraries needed, so it works offline.      */
+    const IMG = { width: 720, pad: 36, bar: 10, scale: 2 };
+    const SANS = 'system-ui, -apple-system, "Segoe UI", "Noto Sans Bengali", "Hind Siliguri", "Kalpurush", sans-serif';
+    const SERIF = 'Georgia, "Noto Serif", serif';
+
+    const cssColor = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+    // Split text into lines that fit maxWidth (breaks over-long words by letter).
+    function wrapLines(ctx, text, maxWidth) {
+      const lines = [];
+      let line = "";
+      text.split(/\s+/).filter(Boolean).forEach((word) => {
+        let rest = word;
+        while (ctx.measureText(rest).width > maxWidth) {
+          let cut = rest.length - 1;
+          while (cut > 1 && ctx.measureText(rest.slice(0, cut)).width > maxWidth) cut--;
+          if (line) { lines.push(line); line = ""; }
+          lines.push(rest.slice(0, cut));
+          rest = rest.slice(cut);
+        }
+        const test = line ? line + " " + rest : rest;
+        if (!line || ctx.measureText(test).width <= maxWidth) {
+          line = test;
+        } else {
+          lines.push(line);
+          line = rest;
+        }
+      });
+      if (line) lines.push(line);
+      return lines;
+    }
+
+    // Work out where every line of text goes, and how tall the image must be.
+    function layoutEntry(ctx, e) {
+      const { width, pad, bar } = IMG;
+      const ink = cssColor("--ink");
+      const muted = cssColor("--muted");
+      const left = bar + pad;
+      const full = width - left - pad;
+      const indent = 40;
+      const items = [];
+      let y = pad;
+
+      // Add wrapped text, moving y down line by line.
+      function add(text, font, color, x, maxW, lineH, gapBefore) {
+        ctx.font = font;
+        y += gapBefore;
+        wrapLines(ctx, text, maxW).forEach((line) => {
+          items.push({ text: line, font, color, x, y: y + lineH / 2 });
+          y += lineH;
+        });
+      }
+
+      // Word, with rank and tier on the right of the first line.
+      items.push({
+        text: `#${e.r} · ${TIERS[e.t][0]}`, font: `400 20px ${SANS}`, color: muted,
+        x: width - pad, y: pad + 28, align: "right"
+      });
+      add(e.w, `600 46px ${SERIF}`, ink, left, full - 170, 56, 0);
+      if (e.bn) add(e.bn, `400 28px ${SANS}`, muted, left, full, 40, 4);
+
+      y += 16;
+      items.push({ rule: true, y, color: cssColor("--line"), x1: left, x2: width - pad });
+
+      if (!e.s.length) add("No definition in the source file.", `italic 400 26px ${SANS}`, muted, left, full, 36, 18);
+
+      e.s.forEach((s, i) => {
+        items.push({ text: (i + 1) + ".", font: `600 28px ${SANS}`, color: muted, x: left, y: y + 18 + 19 });
+        add(s.en, `400 28px ${SANS}`, ink, left + indent, full - indent, 38, 18);
+        if (s.bn) add(s.bn, `italic 400 26px ${SANS}`, muted, left + indent, full - indent, 36, 4);
+        s.ex.forEach((x) => {
+          items.push({ text: "•", font: `400 25px ${SANS}`, color: muted, x: left + indent, y: y + 6 + 17 });
+          add(x, `400 25px ${SANS}`, ink, left + indent + 22, full - indent - 22, 34, 6);
+        });
+      });
+
+      return { items, height: Math.ceil(y + pad) };
+    }
+
+    function saveImage(rank) {
+      const e = D[rank - 1];
+      const { items, height } = layoutEntry(document.createElement("canvas").getContext("2d"), e);
+
+      const canvas = document.createElement("canvas");
+      canvas.width = IMG.width * IMG.scale;
+      canvas.height = height * IMG.scale;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(IMG.scale, IMG.scale);
+
+      ctx.fillStyle = cssColor("--surface");
+      ctx.fillRect(0, 0, IMG.width, height);
+      ctx.fillStyle = cssColor("--t" + e.t);
+      ctx.fillRect(0, 0, IMG.bar, height);
+
+      ctx.textBaseline = "middle";
+      items.forEach((it) => {
+        if (it.rule) {
+          ctx.strokeStyle = it.color;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(it.x1, it.y);
+          ctx.lineTo(it.x2, it.y);
+          ctx.stroke();
+          return;
+        }
+        ctx.font = it.font;
+        ctx.fillStyle = it.color;
+        ctx.textAlign = it.align || "left";
+        ctx.fillText(it.text, it.x, it.y);
+      });
+
+      canvas.toBlob((blob) => {
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = e.w.replace(/[^\w-]+/g, "_") + "-" + e.r + ".png";
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+      }, "image/png");
+    }
+
+    /* ===== Move progress between devices =====
+       Progress is stored per browser, so it is exported as a short text code,
+       e.g.  BNP1;l=1-5,9;c=7;u=12-14   (l = learned, c = confirmed, u = unimportant).
+       Copy it on one device and paste it on another.                          */
+    function toRanges(list) {
+      const out = [];
+      let start = list[0];
+      let prev = start;
+      for (let i = 1; i <= list.length; i++) {
+        const r = list[i];
+        if (r === prev + 1) { prev = r; continue; }
+        out.push(start === prev ? String(start) : start + "-" + prev);
+        start = r;
+        prev = r;
+      }
+      return out.join(",");
+    }
+
+    function encodeProgress() {
+      const groups = { l: [], c: [], u: [] };
+      Object.keys(status).map(Number).sort((a, b) => a - b).forEach((r) => {
+        if (groups[status[r]]) groups[status[r]].push(r);
+      });
+      const parts = Object.entries(groups)
+        .filter(([, list]) => list.length)
+        .map(([key, list]) => key + "=" + toRanges(list));
+      return ["BNP1"].concat(parts).join(";");
+    }
+
+    function decodeProgress(text) {
+      const parts = text.replace(/\s+/g, "").split(";");
+      if (parts[0] !== "BNP1") throw new Error("That is not a progress code.");
+
+      const map = {};
+      parts.slice(1).forEach((part) => {
+        const [key, list] = part.split("=");
+        if (!["l", "c", "u"].includes(key) || !list) throw new Error("The code looks damaged.");
+        list.split(",").forEach((token) => {
+          const [from, to] = token.split("-").map(Number);
+          const end = to === undefined ? from : to;
+          if (!(from >= 1 && end >= from && end <= D.length)) throw new Error("The code looks damaged.");
+          for (let r = from; r <= end; r++) map[r] = key;
+        });
+      });
+      return map;
+    }
+
+    function summary() {
+      const n = { l: 0, c: 0, u: 0 };
+      Object.values(status).forEach((v) => { if (n[v] !== undefined) n[v]++; });
+      return `Learned ${n.l} · Confirmed ${n.c} · Unimportant ${n.u}`;
+    }
+
+    function refreshAll() {
+      renderTabs();
+      renderChips();
+      renderList();
+    }
+
+    function applyCode(replaceAll) {
+      let incoming;
+      try {
+        incoming = decodeProgress($("inCode").value);
+      } catch (err) {
+        $("syncMsg").textContent = err.message;
+        return;
+      }
+      if (replaceAll && !confirm("Replace all marks on this device with the code?")) return;
+
+      status = replaceAll ? incoming : Object.assign({}, status, incoming);
+      saveStatus();
+      refreshAll();
+      $("outCode").value = encodeProgress();
+      $("inCode").value = "";
+      $("syncMsg").textContent = (replaceAll ? "Replaced. " : "Merged. ") + summary();
+    }
+
+    $("sync").addEventListener("click", () => {
+      $("outCode").value = encodeProgress();
+      $("syncMsg").textContent = "This device: " + summary();
+      $("syncBox").showModal();
+    });
+
+    $("closeSync").addEventListener("click", () => $("syncBox").close());
+
+    $("copyCode").addEventListener("click", async () => {
+      const box = $("outCode");
+      try {
+        await navigator.clipboard.writeText(box.value);
+      } catch (e) {
+        box.select();                 // clipboard API can be blocked on local files
+        document.execCommand("copy");
+      }
+      $("syncMsg").textContent = "Code copied. Paste it on your other device.";
+    });
+
+    $("saveFile").addEventListener("click", () => {
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(new Blob([$("outCode").value], { type: "text/plain" }));
+      link.download = "bangla-progress.txt";
+      link.click();
+      URL.revokeObjectURL(link.href);
+      $("syncMsg").textContent = "File saved. Open it on your other device.";
+    });
+
+    $("openFile").addEventListener("click", () => $("fileInput").click());
+
+    $("fileInput").addEventListener("change", async (ev) => {
+      const file = ev.target.files[0];
+      if (!file) return;
+      $("inCode").value = (await file.text()).trim();
+      ev.target.value = "";
+      $("syncMsg").textContent = "File loaded. Now tap Merge or Replace.";
+    });
+
+    $("merge").addEventListener("click", () => applyCode(false));
+    $("replace").addEventListener("click", () => applyCode(true));
 
     /* ===== Start ===== */
     applyTheme(document.documentElement.dataset.theme, false);
