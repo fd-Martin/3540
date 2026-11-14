@@ -273,12 +273,13 @@
     /* ---------- Action buttons inside an opened word ---------- */
     .acts {
       display: flex;
+      flex-wrap: wrap;
       gap: 8px;
       margin-top: 14px;
     }
 
     .act {
-      flex: 1;
+      flex: 1 1 calc(50% - 4px);
       min-height: 46px;
       font: inherit;
       font-size: 0.92rem;
@@ -290,9 +291,20 @@
 
     .act[data-a="l"] {
       font-weight: 600;
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .act[data-a="c"] {
+      font-weight: 600;
       color: var(--on-accent);
       background: var(--accent);
       border-color: var(--accent);
+    }
+
+    .act[data-a="u"],
+    .act[data-a="x"] {
+      flex-basis: 100%;
     }
 
     /* ---------- Bottom tab bar ---------- */
@@ -316,7 +328,7 @@
       justify-content: center;
       min-height: 58px;
       font: inherit;
-      font-size: 0.88rem;
+      font-size: 0.8rem;
       color: var(--muted);
       background: none;
       border: 0;
@@ -3947,11 +3959,20 @@
       1: "var(--t1)", 2: "var(--t2)", 3: "var(--t3)", 4: "var(--t4)", 5: "var(--t5)"
     };
 
-    const TABS = [["learn", "To learn"], ["l", "Learned"], ["u", "Unimportant"]];
+    const TABS = [["learn", "To learn"], ["l", "Learned"], ["c", "Confirmed"], ["u", "Unimportant"]];
+
+    // Buttons shown inside an opened word, per tab. a = new status ("x" = back to learn list).
+    const ACTIONS = {
+      learn: [["l", "✓ Learned"], ["c", "✓✓ Confirmed"], ["u", "Not important"]],
+      l: [["c", "✓✓ Confirmed"], ["x", "Back to learn list"]],
+      c: [["l", "Back to Learned"], ["x", "Back to learn list"]],
+      u: [["x", "Move back to learn list"]]
+    };
 
     const EMPTY = {
       learn: "Nothing here. Try another tier or search.",
       l: "No learned words yet. Open a word and tap “Learned”.",
+      c: "No confirmed words yet. Tap “Confirmed” on a word you are sure you know.",
       u: "Nothing here yet. Open a word and tap “Not important” to move it here."
     };
 
@@ -3964,7 +3985,7 @@
     const esc = (s) => String(s).replace(/[&<>"]/g, (c) => HTML_ESCAPES[c]);
 
     /* ===== State =====
-       status maps rank -> "l" (learned) or "u" (unimportant).
+       status maps rank -> "l" (learned), "c" (confirmed) or "u" (unimportant).
        A rank with no entry belongs to the "To learn" list.                  */
     let status = {};
     try { status = JSON.parse(localStorage.getItem("status2") || "{}"); } catch (e) {}
@@ -4014,7 +4035,7 @@
 
     /* ===== Rendering ===== */
     function renderTabs() {
-      const n = { learn: 0, l: 0, u: 0 };
+      const n = { learn: 0, l: 0, c: 0, u: 0 };
       D.forEach((e) => { n[status[e.r] || "learn"]++; });
 
       $("tabs").innerHTML = TABS.map(([key, label]) => `
@@ -4059,10 +4080,9 @@
       const senses = e.s.map(senseHtml).join("") ||
         '<div class="s"><p class="sbn">No definition in the source file.</p></div>';
 
-      const actions = tab === "learn"
-        ? `<button class="act" data-a="l">✓ Learned</button>
-           <button class="act" data-a="u">Not important</button>`
-        : `<button class="act" data-a="x">Move back to learn list</button>`;
+      const actions = ACTIONS[tab]
+        .map(([a, label]) => `<button class="act" data-a="${a}">${label}</button>`)
+        .join("");
 
       return `
         <details style="--c:${TIER_COLOR[e.t]}" data-r="${e.r}"${expanded ? " open" : ""}>
