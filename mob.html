@@ -382,7 +382,7 @@
   <header>
     <div class="bar">
       <input id="q" type="search" enterkeyhint="search" autocomplete="off"
-             autocapitalize="off" placeholder="Search word, Bangla or definition"
+             autocapitalize="off" placeholder="Search · wildcards: re*  *ing  b?t"
              aria-label="Search">
       <button id="theme" type="button"></button>
     </div>
@@ -4120,12 +4120,33 @@
       $("end").textContent = shown >= results.length && results.length ? "End of list" : "";
     }
 
+    // Turn a wildcard query into a regular expression, or null for a plain query.
+    //   *  = any run of letters (including none)      re*  -> words starting with "re"
+    //   ?  = exactly one letter                        b?t  -> bat, bet, bit, bot, but
+    // A wildcard query must match the whole English word, so use *ing for "ends with"
+    // and *ate* for "contains".
+    function wildcardRegex(q) {
+      if (!/[*?]/.test(q)) return null;
+      const body = q
+        .replace(/[.+^${}()|[\]\\]/g, "\\$&")   // escape regex characters
+        .replace(/\*/g, ".*")
+        .replace(/\?/g, ".");
+      return new RegExp("^" + body + "$", "i");
+    }
+
+    function matches(e, pattern) {
+      if (!query) return true;
+      return pattern ? pattern.test(e.w) : e.k.includes(query);
+    }
+
     function renderList() {
       query = $("q").value.trim().toLowerCase();
-      results = D.filter((e) => inTab(e) && (!tier || e.t === tier) && (!query || e.k.includes(query)));
+      const pattern = wildcardRegex(query);
+      results = D.filter((e) => inTab(e) && (!tier || e.t === tier) && matches(e, pattern));
 
-      // While searching, put words that start with the query first.
-      if (query) {
+      // Plain search: put words that start with the query first.
+      // Wildcard search keeps the usage order (most everyday first).
+      if (query && !pattern) {
         const starts = (e) => e.w.toLowerCase().startsWith(query);
         results.sort((a, b) => (starts(b) - starts(a)) || (a.r - b.r));
       }
